@@ -17,8 +17,8 @@ MiroFish-Offline simulates public debates on social media using AI agents powere
 
 | Machine | Hardware | Role |
 |---|---|---|
-| **AI-STATION-SH** | GMKtek AM18, Ryzen AI MAX 395, 128GB RAM | Main LLM (ontology, GraphRAG, report, Reddit) |
-| **AI-STATION-R9** | MINISFORUM AI X1 PRO, Ryzen AI 9, 64GB RAM | Boost LLM (Twitter simulation) + Embeddings + Zep stack |
+| **AI-STATION-SH** | GMKtec EVO-X2, AMD Ryzen AI MAX+ 395 (Strix Halo), 128GB RAM | Main LLM (ontology, GraphRAG, report, Reddit) |
+| **AI-STATION-R9** | MINISFORUM AI-X1 PRO, AMD Ryzen AI 9 HX 470, 64GB RAM | Boost LLM (Twitter simulation) + Embeddings + Zep stack |
 
 ### Services
 - **SH**: LM Studio (port 1234) + Flask backend (port 5001) + Vite frontend (port 3000)
