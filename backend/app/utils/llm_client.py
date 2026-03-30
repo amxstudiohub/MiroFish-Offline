@@ -80,7 +80,9 @@ class LLMClient:
             }
 
         response = self.client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content
+        msg = response.choices[0].message
+        content = msg.content or getattr(msg, 'reasoning_content', '') or ''
+        content = content.strip()
         # Some models (like MiniMax M2.5) include <think>thinking content in response, need to remove
         content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         return content
@@ -106,7 +108,6 @@ class LLMClient:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            response_format={"type": "json_object"}
         )
         # Clean markdown code block markers
         cleaned_response = response.strip()

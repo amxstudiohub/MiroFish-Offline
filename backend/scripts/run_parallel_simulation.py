@@ -93,13 +93,13 @@ sys.path.insert(0, _backend_dir)
 from dotenv import load_dotenv
 _env_file = os.path.join(_project_root, '.env')
 if os.path.exists(_env_file):
-    load_dotenv(_env_file)
+    load_dotenv(_env_file, override=True)
     print(f"Loaded environment configuration: {_env_file}")
 else:
     # Try to load backend/.env
     _backend_env = os.path.join(_backend_dir, '.env')
     if os.path.exists(_backend_env):
-        load_dotenv(_backend_env)
+        load_dotenv(_backend_env, override=True)
         print(f"Loaded environment configuration: {_backend_env}")
 
 
@@ -1127,7 +1127,7 @@ async def run_twitter_simulation(
     log_info("Initializing...")
     
     # Twitter use common LLM configuration
-    model = create_model(config, use_boost=False)
+    model = create_model(config, use_boost=True)
     
     # OASIS Twitter uses CSV format
     profile_path = os.path.join(simulation_dir, "twitter_profiles.csv")
@@ -1319,7 +1319,7 @@ async def run_reddit_simulation(
     log_info("Initializing...")
     
     # Reddit use acceleration LLM configuration(if available，otherwise fallback toCommon configuration）
-    model = create_model(config, use_boost=True)
+    model = create_model(config, use_boost=False)
     
     profile_path = os.path.join(simulation_dir, "reddit_profiles.json")
     if not os.path.exists(profile_path):

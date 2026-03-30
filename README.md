@@ -1,205 +1,156 @@
-<div align="center">
-
-<img src="./static/image/mirofish-offline-banner.png" alt="MiroFish Offline" width="100%"/>
-
 # MiroFish-Offline
 
-**Fully local fork of [MiroFish](https://github.com/666ghj/MiroFish) — no cloud APIs required. English UI.**
+A fork of [MiroFish](https://github.com/nikmcfly/MiroFish-Offline) — a multi-agent social media simulation platform with GraphRAG, adapted for fully offline/local LLM inference on a dual-machine AI cluster.
 
-*A multi-agent swarm intelligence engine that simulates public opinion, market sentiment, and social dynamics. Entirely on your hardware.*
+## Overview
 
-[![GitHub Stars](https://img.shields.io/github/stars/nikmcfly/MiroFish-Offline?style=flat-square&color=DAA520)](https://github.com/nikmcfly/MiroFish-Offline/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/nikmcfly/MiroFish-Offline?style=flat-square)](https://github.com/nikmcfly/MiroFish-Offline/network)
-[![Docker](https://img.shields.io/badge/Docker-Build-2496ED?style=flat-square&logo=docker&logoColor=white)](https://hub.docker.com/)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?style=flat-square)](./LICENSE)
+MiroFish-Offline simulates public debates on social media using AI agents powered by local LLMs. Starting from a source document (a "reality seed"), the system:
 
-</div>
+1. **Builds a Knowledge Graph** (GraphRAG) using Neo4j — extracting entities, relationships, and ontologies from the input document
+2. **Generates Agent Personas** — each agent gets a rich, LLM-generated personality profile based on the knowledge graph
+3. **Runs Parallel Simulations** on two platforms:
+   - **Info Plaza** (Twitter-like) — short posts, likes, reposts, follows
+   - **Topic Community** (Reddit-like) — longer posts, comments, upvotes, debates
+4. **Generates a Prediction Report** — the system interviews agents and produces a structured analytical report with future predictions
 
-## What is this?
+## Hardware Setup (Dual-Machine Cluster)
 
-MiroFish is a multi-agent simulation engine: upload any document (press release, policy draft, financial report), and it generates hundreds of AI agents with unique personalities that simulate the public reaction on social media. Posts, arguments, opinion shifts — hour by hour.
+| Machine | Hardware | Role |
+|---|---|---|
+| **AI-STATION-SH** | GMKtek AM18, Ryzen AI MAX 395, 128GB RAM | Main LLM (ontology, GraphRAG, report, Reddit) |
+| **AI-STATION-R9** | MINISFORUM AI X1 PRO, Ryzen AI 9, 64GB RAM | Boost LLM (Twitter simulation) + Embeddings + Zep stack |
 
-The [original MiroFish](https://github.com/666ghj/MiroFish) was built for the Chinese market (Chinese UI, Zep Cloud for knowledge graphs, DashScope API). This fork makes it **fully local and fully English**:
+### Services
+- **SH**: LM Studio (port 1234) + Flask backend (port 5001) + Vite frontend (port 3000)
+- **R9**: LM Studio (port 1234) + Docker stack (Zep CE, Neo4j, pgvector, Graphiti)
 
-| Original MiroFish | MiroFish-Offline |
+## Recommended Models
+
+| Role | Model | Speed |
+|---|---|---|
+| Main LLM (SH) | `qwen/qwen3.5-35b-a3b` | ~68-70 t/s |
+| Boost LLM (R9) | `nemotron-cascade-2-30b-a3b-i1` | ~35 t/s |
+| Embeddings (R9) | `text-embedding-nomic-embed-text-v1.5` | — |
+
+Both models are MoE (Mixture of Experts) architectures, providing high quality at fast inference speeds.
+
+## Environment Configuration (.env)
+
+```env
+# Main LLM (SH) — used for ontology, GraphRAG, agent profiles, report
+LLM_API_KEY=lm-studio
+LLM_BASE_URL=http://<SH_IP>:1234/v1
+LLM_MODEL_NAME=qwen/qwen3.5-35b-a3b
+
+# Boost LLM (R9) — used for Twitter/Info Plaza simulation
+LLM_BOOST_API_KEY=lm-studio
+LLM_BOOST_BASE_URL=http://<R9_IP>:1234/v1
+LLM_BOOST_MODEL_NAME=nemotron-cascade-2-30b-a3b-i1
+
+# Embeddings (R9)
+EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
+EMBEDDING_BASE_URL=http://<R9_IP>:1234/v1
+
+# Neo4j (R9)
+NEO4J_URI=bolt://<R9_IP>:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_password
+
+# CAMEL/OASIS — MUST point to SH, not R9!
+# If this points to R9, CAMEL will trigger unwanted model loading on R9 during agent preparation
+OPENAI_API_KEY=lm-studio
+OPENAI_API_BASE_URL=http://<SH_IP>:1234/v1
+
+# CAMEL model timeout — increase for slower models
+MODEL_TIMEOUT=600
+```
+
+> ⚠️ **Critical**: `OPENAI_API_BASE_URL` must point to SH. If it points to R9, CAMEL/OASIS will send requests to R9 during agent generation and force-load the default model, ignoring `LLM_BOOST_MODEL_NAME`.
+
+## Dual-LLM Routing
+
+The simulation splits workload across two machines:
+
+| Platform | LLM | Machine | Reason |
+|---|---|---|---|
+| Topic Community (Reddit) | Main LLM | SH | More actions, longer posts — needs more power |
+| Info Plaza (Twitter) | Boost LLM | R9 | Short posts, faster rounds |
+| Agent preparation | Main LLM | SH | Always on SH regardless of boost config |
+| Report generation | Main LLM | SH | Always on SH |
+
+## Fixes Applied (vs Original MiroFish)
+
+### Bug Fixes
+| File | Fix |
 |---|---|
-| Chinese UI | **English UI** (1,000+ strings translated) |
-| Zep Cloud (graph memory) | **Neo4j Community Edition 5.15** |
-| DashScope / OpenAI API (LLM) | **Ollama** (qwen2.5, llama3, etc.) |
-| Zep Cloud embeddings | **nomic-embed-text** via Ollama |
-| Cloud API keys required | **Zero cloud dependencies** |
+| `app/utils/llm_client.py` | Removed `response_format=None` (caused `{"type": null}` errors with LM Studio) |
+| `app/services/oasis_profile_generator.py` | Same fix — was causing all agent persona generation to fail |
+| `app/services/simulation_config_generator.py` | Same fix |
+| `app/storage/embedding_service.py` | Fixed endpoint `/api/embed` → `/embeddings`, added OpenAI format support |
 
-## Workflow
+### Performance & Stability
+| File | Fix |
+|---|---|
+| `app/services/simulation_ipc.py` | IPC timeout 120s → 600s |
+| `app/services/simulation_runner.py` | Batch chunk size 4 → 2 (prevents interview timeouts), global timeout 180s → 600s |
+| `app/services/graph_tools.py` | Hardcoded timeout 180s → 600s |
+| `scripts/run_parallel_simulation.py` | Added `load_dotenv(override=True)` to ensure subprocess reads updated .env values |
 
-1. **Graph Build** — Extracts entities (people, companies, events) and relationships from your document. Builds a knowledge graph with individual and group memory via Neo4j.
-2. **Env Setup** — Generates hundreds of agent personas, each with unique personality, opinion bias, reaction speed, influence level, and memory of past events.
-3. **Simulation** — Agents interact on simulated social platforms: posting, replying, arguing, shifting opinions. The system tracks sentiment evolution, topic propagation, and influence dynamics in real time.
-4. **Report** — A ReportAgent analyzes the post-simulation environment, interviews a focus group of agents, searches the knowledge graph for evidence, and generates a structured analysis.
-5. **Interaction** — Chat with any agent from the simulated world. Ask them why they posted what they posted. Full memory and personality persists.
-
-## Screenshot
-
-<div align="center">
-<img src="./static/image/mirofish-offline-screenshot.jpg" alt="MiroFish Offline — English UI" width="100%"/>
-</div>
+### Dual-LLM Support
+| File | Fix |
+|---|---|
+| `scripts/run_parallel_simulation.py` | Inverted `use_boost` routing: Reddit→SH (False), Twitter→R9 (True) |
+| `.env` | Added `LLM_BOOST_*` variables for R9 model, `MODEL_TIMEOUT=600` for CAMEL |
 
 ## Quick Start
 
-### Prerequisites
-
-- Docker & Docker Compose (recommended), **or**
-- Python 3.11+, Node.js 18+, Neo4j 5.15+, Ollama
-
-### Option A: Docker (easiest)
-
+### R9 — Start Docker stack
 ```bash
-git clone https://github.com/nikmcfly/MiroFish-Offline.git
-cd MiroFish-Offline
-cp .env.example .env
-
-# Start all services (Neo4j, Ollama, MiroFish)
+cd /path/to/zep-storage
 docker compose up -d
-
-# Pull the required models into Ollama
-docker exec mirofish-ollama ollama pull qwen2.5:32b
-docker exec mirofish-ollama ollama pull nomic-embed-text
 ```
 
-Open `http://localhost:3000` — that's it.
-
-### Option B: Manual
-
-**1. Start Neo4j**
-
+### SH — Start backend + frontend
 ```bash
-docker run -d --name neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/mirofish \
-  neo4j:5.15-community
-```
+# Terminal 1 - Backend
+cd /path/to/MiroFish-Offline
+source venv/bin/activate
+cd backend && python run.py
 
-**2. Start Ollama & pull models**
-
-```bash
-ollama serve &
-ollama pull qwen2.5:32b      # LLM (or qwen2.5:14b for less VRAM)
-ollama pull nomic-embed-text  # Embeddings (768d)
-```
-
-**3. Configure & run backend**
-
-```bash
-cp .env.example .env
-# Edit .env if your Neo4j/Ollama are on non-default ports
-
-cd backend
-pip install -r requirements.txt
-python run.py
-```
-
-**4. Run frontend**
-
-```bash
-cd frontend
-npm install
+# Terminal 2 - Frontend
+cd /path/to/MiroFish-Offline/frontend
 npm run dev
 ```
 
-Open `http://localhost:3000`.
-
-## Configuration
-
-All settings are in `.env` (copy from `.env.example`):
-
+### Cluster health check
 ```bash
-# LLM — points to local Ollama (OpenAI-compatible API)
-LLM_API_KEY=ollama
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL_NAME=qwen2.5:32b
-
-# Neo4j
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=mirofish
-
-# Embeddings
-EMBEDDING_MODEL=nomic-embed-text
-EMBEDDING_BASE_URL=http://localhost:11434
+bash test_cluster.sh
 ```
 
-Works with any OpenAI-compatible API — swap Ollama for Claude, GPT, or any other provider by changing `LLM_BASE_URL` and `LLM_API_KEY`.
+## Tips for Best Results
+
+- **Source document**: Include explicit named entities (people, organizations) with roles and relationships. The GraphRAG extracts these as simulation agents.
+- **Prompt**: Explicitly list character names and their roles — this generates richer, more distinct agent personalities.
+- **Context window**: 128k is sufficient for most simulations and faster than 262k.
+- **Custom rounds**: Use the Custom mode (15-30 rounds) for quick tests before running full 48-72 round simulations.
 
 ## Architecture
 
-This fork introduces a clean abstraction layer between the application and the graph database:
-
 ```
-┌─────────────────────────────────────────┐
-│              Flask API                   │
-│  graph.py  simulation.py  report.py     │
-└──────────────┬──────────────────────────┘
-               │ app.extensions['neo4j_storage']
-┌──────────────▼──────────────────────────┐
-│           Service Layer                  │
-│  EntityReader  GraphToolsService         │
-│  GraphMemoryUpdater  ReportAgent         │
-└──────────────┬──────────────────────────┘
-               │ storage: GraphStorage
-┌──────────────▼──────────────────────────┐
-│         GraphStorage (abstract)          │
-│              │                            │
-│    ┌─────────▼─────────┐                │
-│    │   Neo4jStorage     │                │
-│    │  ┌───────────────┐ │                │
-│    │  │ EmbeddingService│ ← Ollama       │
-│    │  │ NERExtractor   │ ← Ollama LLM   │
-│    │  │ SearchService  │ ← Hybrid search │
-│    │  └───────────────┘ │                │
-│    └───────────────────┘                │
-└─────────────────────────────────────────┘
-               │
-        ┌──────▼──────┐
-        │  Neo4j CE   │
-        │  5.15       │
-        └─────────────┘
+Frontend (Vite) ──► Backend (Flask)
+                        │
+                        ├── GraphRAG Builder ──► Neo4j (R9)
+                        ├── Agent Persona Generator ──► LM Studio SH
+                        ├── Simulation Runner
+                        │       ├── run_parallel_simulation.py
+                        │       │       ├── Twitter ──► LM Studio R9 (Boost)
+                        │       │       └── Reddit  ──► LM Studio SH (Main)
+                        │       └── IPC (filesystem-based commands/responses)
+                        ├── Report Agent ──► LM Studio SH
+                        └── Embedding Service ──► LM Studio R9
 ```
 
-**Key design decisions:**
+## Original Project
 
-- `GraphStorage` is an abstract interface — swap Neo4j for any other graph DB by implementing one class
-- Dependency injection via Flask `app.extensions` — no global singletons
-- Hybrid search: 0.7 × vector similarity + 0.3 × BM25 keyword search
-- Synchronous NER/RE extraction via local LLM (replaces Zep's async episodes)
-- All original dataclasses and LLM tools (InsightForge, Panorama, Agent Interviews) preserved
-
-## Hardware Requirements
-
-| Component | Minimum | Recommended |
-|---|---|---|
-| RAM | 16 GB | 32 GB |
-| VRAM (GPU) | 10 GB (14b model) | 24 GB (32b model) |
-| Disk | 20 GB | 50 GB |
-| CPU | 4 cores | 8+ cores |
-
-CPU-only mode works but is significantly slower for LLM inference. For lighter setups, use `qwen2.5:14b` or `qwen2.5:7b`.
-
-## Use Cases
-
-- **PR crisis testing** — simulate the public reaction to a press release before publishing
-- **Trading signal generation** — feed financial news and observe simulated market sentiment
-- **Policy impact analysis** — test draft regulations against simulated public response
-- **Creative experiments** — someone fed it a classical Chinese novel with a lost ending; the agents wrote a narratively consistent conclusion
-
-## License
-
-AGPL-3.0 — same as the original MiroFish project. See [LICENSE](./LICENSE).
-
-## Credits & Attribution
-
-This is a modified fork of [MiroFish](https://github.com/666ghj/MiroFish) by [666ghj](https://github.com/666ghj), originally supported by [Shanda Group](https://www.shanda.com/). The simulation engine is powered by [OASIS](https://github.com/camel-ai/oasis) from the CAMEL-AI team.
-
-**Modifications in this fork:**
-- Backend migrated from Zep Cloud to local Neo4j CE 5.15 + Ollama
-- Entire frontend translated from Chinese to English (20 files, 1,000+ strings)
-- All Zep references replaced with Neo4j across the UI
-- Rebranded to MiroFish Offline
+This is a fork of [MiroFish-Offline](https://github.com/nikmcfly/MiroFish-Offline).  
+All original credits go to the original authors.

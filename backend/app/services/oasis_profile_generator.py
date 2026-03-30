@@ -477,7 +477,6 @@ class OasisProfileGenerator:
                         {"role": "system", "content": self._get_system_prompt(is_individual)},
                         {"role": "user", "content": prompt}
                     ],
-                    response_format={"type": "json_object"},
                     temperature=0.7 - (attempt * 0.1)  # Lower temperature with each retry
                     # Don't set max_tokens, let LLM generate freely
                 )

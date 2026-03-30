@@ -1522,27 +1522,51 @@ class SimulationRunner:
         if not ipc_client.check_env_alive():
             raise ValueError(f"Simulation environment not running or closed, cannot execute Interview: {simulation_id}")
 
-        logger.info(f"Send batch Interview command: simulation_id={simulation_id}, count={len(interviews)}, platform={platform}")
+        BATCH_CHUNK_SIZE = 2
+        logger.info(f"Send batch Interview command: simulation_id={simulation_id}, count={len(interviews)}, platform={platform}, chunk_size={BATCH_CHUNK_SIZE}")
 
-        response = ipc_client.send_batch_interview(
-            interviews=interviews,
-            platform=platform,
-            timeout=timeout
-        )
+        all_results = {}
+        all_success = True
+        last_timestamp = None
+        last_error = None
+        total_chunks = (len(interviews) + BATCH_CHUNK_SIZE - 1) // BATCH_CHUNK_SIZE
 
-        if response.status.value == "completed":
+        for chunk_start in range(0, len(interviews), BATCH_CHUNK_SIZE):
+            chunk = interviews[chunk_start:chunk_start + BATCH_CHUNK_SIZE]
+            chunk_num = chunk_start // BATCH_CHUNK_SIZE + 1
+            logger.info(f"Processing interview chunk {chunk_num}/{total_chunks}: agents={[i.get('agent_id') for i in chunk]}")
+            try:
+                response = ipc_client.send_batch_interview(
+                    interviews=chunk,
+                    platform=platform,
+                    timeout=timeout
+                )
+                last_timestamp = response.timestamp
+                if response.status.value == "completed":
+                    if response.result and "results" in response.result:
+                        all_results.update(response.result["results"])
+                else:
+                    all_success = False
+                    last_error = response.error
+                    logger.warning(f"Chunk {chunk_num}/{total_chunks} failed: {response.error}")
+            except TimeoutError as e:
+                all_success = False
+                last_error = str(e)
+                logger.error(f"Chunk {chunk_num}/{total_chunks} timed out: {e}")
+
+        if all_success or all_results:
             return {
                 "success": True,
-                "interviews_count": len(interviews),
-                "result": response.result,
-                "timestamp": response.timestamp
+                "interviews_count": len(all_results),
+                "result": {"interviews_count": len(all_results), "results": all_results},
+                "timestamp": last_timestamp
             }
         else:
             return {
                 "success": False,
-                "interviews_count": len(interviews),
-                "error": response.error,
-                "timestamp": response.timestamp
+                "interviews_count": 0,
+                "error": last_error,
+                "timestamp": last_timestamp
             }
     
     @classmethod
@@ -1551,7 +1575,7 @@ class SimulationRunner:
         simulation_id: str,
         prompt: str,
         platform: str = None,
-        timeout: float = 180.0
+        timeout: float = 600.0
     ) -> Dict[str, Any]:
         """
         Interview all Agents (global interview)

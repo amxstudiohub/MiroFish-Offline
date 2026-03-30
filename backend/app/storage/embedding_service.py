@@ -31,7 +31,7 @@ class EmbeddingService:
         self.base_url = (base_url or Config.EMBEDDING_BASE_URL).rstrip('/')
         self.max_retries = max_retries
         self.timeout = timeout
-        self._embed_url = f"{self.base_url}/api/embed"
+        self._embed_url = f"{self.base_url}/embeddings"
 
         # Simple in-memory cache (text -> embedding vector)
         # Using dict instead of lru_cache because lists aren't hashable
@@ -141,7 +141,13 @@ class EmbeddingService:
                 response.raise_for_status()
                 data = response.json()
 
-                embeddings = data.get("embeddings", [])
+                # Support both Ollama format and OpenAI format (LM Studio)
+                if "embeddings" in data:
+                    embeddings = data["embeddings"]
+                elif "data" in data:
+                    embeddings = [item["embedding"] for item in data["data"]]
+                else:
+                    embeddings = []
                 if len(embeddings) != len(texts):
                     raise EmbeddingError(
                         f"Expected {len(texts)} embeddings, got {len(embeddings)}"
